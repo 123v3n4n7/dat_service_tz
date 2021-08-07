@@ -2,9 +2,8 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
 class IsAuthenticatedUpdateOrReadOnly(BasePermission):
-    """Permission, который запрещает редактировать профиль пользователю, котому данный профиль не принадлежит"""
     """
-    The request is authenticated as a user, or is a read-only request.
+    Permission, который запрещает редактировать профиль пользователю, котому данный профиль не принадлежит
     """
 
     def has_permission(self, request, view):
@@ -15,9 +14,6 @@ class IsAuthenticatedUpdateOrReadOnly(BasePermission):
         )
 
     def has_object_permission(self, request, view, obj):
-        """
-        Return `True` if permission is granted, `False` otherwise.
-        """
         return bool(
             request.method in SAFE_METHODS or
             request.user and

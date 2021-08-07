@@ -4,6 +4,10 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.validators import UniqueValidator
 from django.contrib.auth.password_validation import validate_password
 from .models import *
+from trainees_one.celery import celery_app
+from PIL import Image
+from trainees_one.settings import BASE_DIR
+import os
 
 
 class UserSerializer(ModelSerializer):
@@ -23,6 +27,25 @@ class UserSerializer(ModelSerializer):
         fields = ("id", "username", "password", "email",)
 
 
+@celery_app.task(ignore_result=False)
+def add_watermark_on_image(user_id, image_name):
+    u = UserProfile.objects.get(user=user_id)
+    original_image = Image.open(u.image)
+    watermark = Image.open(os.path.join(BASE_DIR, 'media/watermark/index.jpeg'))
+    original_image_x, original_image_y = original_image.size
+    watermark_x, watermark_y = watermark.size
+    scale = 10
+    watermark_scale = max(original_image_x / (scale * watermark_x), original_image_y / (scale * watermark_y))
+    new_size = (int(watermark_x * watermark_scale), int(watermark_y * watermark_scale))
+    rgba_watermark = watermark.resize(new_size, resample=Image.ANTIALIAS)
+    rgba_watermark_mask = rgba_watermark.convert("L").point(lambda x: min(x, 180))
+    rgba_watermark.putalpha(rgba_watermark_mask)
+    original_image.paste(rgba_watermark, (0, 0), rgba_watermark_mask)
+    original_image.save(os.path.join(BASE_DIR, f'media/images/{image_name}'))
+    u.image = f'images/{image_name}'
+    u.save()
+
+
 class UserProfileSerializer(ModelSerializer):
     long = DecimalField(write_only=True, required=False, max_digits=22, decimal_places=16)
     lat = DecimalField(write_only=True, required=False, max_digits=22, decimal_places=16)
@@ -33,6 +56,21 @@ class UserProfileSerializer(ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ("first_name", "last_name", "gender", "image", "long", "lat")
+
+    def update(self, instance, validated_data):
+        image = validated_data.get('image', None)
+        try:
+            instance.user.first_name = validated_data['user']['first_name']
+        except KeyError:
+            pass
+        try:
+            instance.user.last_name = validated_data['user']['last_name']
+        except KeyError:
+            pass
+        if image:
+            add_watermark_on_image.delay(instance.id, str(validated_data['image']))
+        instance.save()
+        return instance
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):

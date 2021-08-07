@@ -11,26 +11,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.response import Response
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
-from django.core.mail import send_mail
 from .permissions import IsAuthenticatedUpdateOrReadOnly
 from rest_framework.parsers import MultiPartParser, FormParser
 from .custom_filter import filter_queryset
 from rest_framework.reverse import reverse
-
-
-def send_mail_if_match(user_1, user_2):
-    send_mail(
-        "It's a Match!",
-        f'Вы понравились {user_2.first_name} {user_2.last_name}',
-        'from@yourdjangoapp.com',
-        [f'{user_1.email}'],
-        fail_silently=False,
-    )
+from .tasks import send_mail_if_match
 
 
 class MatchUser(APIView):
     """Если был сделан get-запрос, то созадётся объект MatchUser, связывющий двух пользователей. Проверяется наличие
      взаимного объекта MatchUser, если такой есть, то вызывется функция send_mail_if_match."""
+
     def get(self, request, *args, **kwargs):
         try:
             user_id = kwargs['id']
@@ -46,8 +37,8 @@ class MatchUser(APIView):
                 email = UserSerializer(get_like_user).data['email']
                 profile_1 = request.user
                 profile_2 = get_like_user
-                send_mail_if_match(profile_1, profile_2)
-                send_mail_if_match(profile_2, profile_1)
+                send_mail_if_match.delay(profile_1.email, profile_2.first_name, profile_2.last_name)
+                send_mail_if_match.delay(profile_2.email, profile_1.first_name, profile_1.last_name)
                 return Response({"email": email}, status=status.HTTP_200_OK)
             except ObjectDoesNotExist:
                 pass
